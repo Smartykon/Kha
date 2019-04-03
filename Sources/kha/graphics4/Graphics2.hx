@@ -1,5 +1,6 @@
 package kha.graphics4;
 
+import kha.graphics2.truetype.StbTruetype.Stbtt_vertex;
 import kha.arrays.Float32Array;
 import kha.Canvas;
 import kha.Color;
@@ -20,6 +21,7 @@ import kha.graphics4.Usage;
 import kha.graphics4.VertexBuffer;
 import kha.graphics4.VertexData;
 import kha.graphics4.VertexStructure;
+import kha.math.FastVector2;
 import kha.math.FastMatrix3;
 import kha.math.FastMatrix4;
 import kha.math.FastVector2;
@@ -764,6 +766,23 @@ class TextShaderPainter {
 		endString();
 	}
 
+	public function getStringWidth(text: String): FastFloat {
+		// Ohne transformation
+		var font = this.font._get(fontSize);
+
+		var xpos: FastFloat = 0.0;
+		var ypos: FastFloat = 0.0;
+		startString(text);
+		for (i in 0...stringLength()) {
+			var q = font.getBakedQuad(bakedQuadCache, findIndex(charCodeAt(i)), xpos, ypos);
+			if (q != null) {
+				xpos += q.xadvance;
+			}
+		}
+		endString();
+		return xpos;
+	}
+
 	public function drawCharacters(text: Array<Int>, start: Int, length: Int, opacity: FastFloat, color: Color, x: Float, y: Float, transformation: FastMatrix3): Void {
 		var font = this.font._get(fontSize);
 		var tex = font.getTexture();
@@ -1007,6 +1026,27 @@ class Graphics2 extends kha.graphics2.Graphics {
 
 		coloredPainter.fillTriangle(opacity, color, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
 		coloredPainter.fillTriangle(opacity, color, p3.x, p3.y, p2.x, p2.y, p4.x, p4.y);
+	}
+
+	public function drawMultiLine(x1: Float, y1: Float, x2: Float, y2: Float, strength: Float, strengthForLines: Float): Void {
+		var vec: FastVector2;
+		if (y2 == y1) vec = new FastVector2(0, -1);
+		else vec = new FastVector2(1, -(x2 - x1) / (y2 - y1));
+		vec.length = strength;
+		var p1 = new FastVector2(x1 + 0.5 * vec.x, y1 + 0.5 * vec.y);
+		var p2 = new FastVector2(x2 + 0.5 * vec.x, y2 + 0.5 * vec.y);
+		var p3 = p1.sub(vec);
+		var p4 = p2.sub(vec);
+
+		p1 = transformation.multvec(p1);
+		p2 = transformation.multvec(p2);
+		p3 = transformation.multvec(p3);
+		p4 = transformation.multvec(p4);
+
+		drawLine(p1.x, p1.y, p3.x, p3.y, strengthForLines);
+		drawLine(p1.x, p1.y, p2.x, p2.y, strengthForLines);
+		drawLine(p3.x, p3.y, p4.x, p4.y, strengthForLines);
+		drawLine(p2.x, p2.y, p4.x, p4.y, strengthForLines);
 	}
 
 	public override function fillTriangle(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) {
