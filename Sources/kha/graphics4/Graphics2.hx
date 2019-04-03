@@ -173,7 +173,7 @@ class ImageShaderPainter {
 	}
 
 	private function drawBuffer(): Void {
-		rectVertexBuffer.unlock();
+		rectVertexBuffer.unlock(bufferIndex * 4);
 		g.setVertexBuffer(rectVertexBuffer);
 		g.setIndexBuffer(indexBuffer);
 		g.setPipeline(myPipeline.pipeline);
@@ -360,7 +360,7 @@ class ColoredShaderPainter {
 
 	public function setRectColors(opacity: FastFloat, color: Color): Void {
 		var baseIndex: Int = bufferIndex * 7 * 4;
-		
+
 		var a: FastFloat = opacity * color.A;
 		var r: FastFloat = a * color.R;
 		var g: FastFloat = a * color.G;
@@ -429,7 +429,7 @@ class ColoredShaderPainter {
 	private function drawBuffer(trisDone: Bool): Void {
 		if (!trisDone) endTris(true);
 
-		rectVertexBuffer.unlock();
+		rectVertexBuffer.unlock(bufferIndex * 4);
 		g.setVertexBuffer(rectVertexBuffer);
 		g.setIndexBuffer(indexBuffer);
 		g.setPipeline(myPipeline.pipeline);
@@ -444,7 +444,7 @@ class ColoredShaderPainter {
 	private function drawTriBuffer(rectsDone: Bool): Void {
 		if (!rectsDone) endRects(true);
 
-		triangleVertexBuffer.unlock();
+		triangleVertexBuffer.unlock(triangleBufferIndex * 3);
 		g.setVertexBuffer(triangleVertexBuffer);
 		g.setIndexBuffer(triangleIndexBuffer);
 		g.setPipeline(myPipeline.pipeline);
@@ -494,9 +494,6 @@ class ColoredShaderPainter {
 	}
 }
 
-#if cpp
-@:headerClassCode("const wchar_t* wtext;")
-#end
 class TextShaderPainter {
 	var projectionMatrix: FastMatrix4;
 	static var standardTextPipeline: PipelineCache = null;
@@ -628,7 +625,7 @@ class TextShaderPainter {
 	}
 
 	private function drawBuffer(): Void {
-		rectVertexBuffer.unlock();
+		rectVertexBuffer.unlock(bufferIndex * 4);
 		g.setVertexBuffer(rectVertexBuffer);
 		g.setIndexBuffer(indexBuffer);
 		g.setPipeline(myPipeline.pipeline);
@@ -650,44 +647,6 @@ class TextShaderPainter {
 
 	public function setFont(font: Font): Void {
 		this.font = cast(font, Kravur);
-	}
-
-	private var text: String;
-
-	#if cpp
-	@:functionCode('
-		wtext = text.__WCStr();
-	')
-	#end
-	private function startString(text: String): Void {
-		this.text = text;
-	}
-
-	#if cpp
-	@:functionCode('
-		return wtext[position];
-	')
-	#end
-	private function charCodeAt(position: Int): Int {
-		return text.charCodeAt(position);
-	}
-
-	#if cpp
-	@:functionCode('
-		return wcslen(wtext);
-	')
-	#end
-	private function stringLength(): Int {
-		return text.length;
-	}
-
-	#if cpp
-	@:functionCode('
-		wtext = 0;
-	')
-	#end
-	private function endString(): Void {
-		text = null;
 	}
 
 	private static function findIndex(charCode: Int): Int {
@@ -713,9 +672,9 @@ class TextShaderPainter {
 
 		var xpos = x;
 		var ypos = y;
-		startString(text);
-		for (i in 0...stringLength()) {
-			var q = font.getBakedQuad(bakedQuadCache, findIndex(charCodeAt(i)), xpos, ypos);
+		for (i in 0...text.length) {
+			var charCode = StringTools.fastCodeAt(text, i);
+			var q = font.getBakedQuad(bakedQuadCache, findIndex(charCode), xpos, ypos);
 			if (q != null) {
 				if (bufferIndex + 1 >= bufferSize) drawBuffer();
 				setRectColors(opacity, color);
@@ -729,7 +688,6 @@ class TextShaderPainter {
 				++bufferIndex;
 			}
 		}
-		endString();
 	}
 
 	public function getStringWidth(text: String): FastFloat {
@@ -1026,19 +984,22 @@ class Graphics2 extends kha.graphics2.Graphics {
 		coloredPainter.fillTriangle(opacity, color, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
 	}
 
-	private var myImageScaleQuality: ImageScaleQuality = ImageScaleQuality.High;
+	private var myImageScaleQuality: ImageScaleQuality = ImageScaleQuality.Low;
 
 	override private function get_imageScaleQuality(): ImageScaleQuality {
 		return myImageScaleQuality;
 	}
 
 	override private function set_imageScaleQuality(value: ImageScaleQuality): ImageScaleQuality {
+		if (value == myImageScaleQuality) {
+			return value;
+		}
 		imagePainter.setBilinearFilter(value == ImageScaleQuality.High);
 		textPainter.setBilinearFilter(value == ImageScaleQuality.High);
 		return myImageScaleQuality = value;
 	}
 
-	private var myMipmapScaleQuality: ImageScaleQuality = ImageScaleQuality.High;
+	private var myMipmapScaleQuality: ImageScaleQuality = ImageScaleQuality.Low;
 
 	override private function get_mipmapScaleQuality(): ImageScaleQuality {
 		return myMipmapScaleQuality;
@@ -1051,13 +1012,18 @@ class Graphics2 extends kha.graphics2.Graphics {
 	}
 
 	var pipelineCache = new Map<PipelineState, PipelineCache>();
+	var lastPipeline: PipelineState = null;
 
 	override private function setPipeline(pipeline: PipelineState): Void {
+		if (pipeline == lastPipeline) {
+			return;
+		}
+		lastPipeline = pipeline;
 		flush();
 		if (pipeline == null) {
 			imagePainter.pipeline = null;
 			coloredPainter.pipeline = null;
-			textPainter.pipeline = null;	
+			textPainter.pipeline = null;
 		}
 		else {
 			var cache = pipelineCache[pipeline];
@@ -1071,14 +1037,30 @@ class Graphics2 extends kha.graphics2.Graphics {
 		}
 	}
 
+	var scissorEnabled = false;
+	var scissorX: Int = -1;
+	var scissorY: Int = -1;
+	var scissorW: Int = -1;
+	var scissorH: Int = -1;
+
 	override public function scissor(x: Int, y: Int, width: Int, height: Int): Void {
-		flush();
-		g.scissor(x, y, width, height);
+		//if (!scissorEnabled || x != scissorX || y != scissorY || width != scissorW || height != scissorH) {
+			scissorEnabled = true;
+			scissorX = x;
+			scissorY = y;
+			scissorW = width;
+			scissorH = height;
+			flush();
+			g.scissor(x, y, width, height);
+		//}
 	}
 
 	override public function disableScissor(): Void {
-		flush();
-		g.disableScissor();
+		//if (scissorEnabled) {
+			scissorEnabled = false;
+			flush();
+			g.disableScissor();
+		//}
 	}
 
 	override public function begin(clear: Bool = true, clearColor: Color = null): Void {

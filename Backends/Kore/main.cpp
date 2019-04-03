@@ -11,6 +11,7 @@
 #include <Kore/IO/FileReader.h>
 #include <Kore/Log.h>
 #include <Kore/Threads/Mutex.h>
+#include <Kore/Threads/Thread.h>
 #include <Kore/Math/Random.h>
 #if HXCPP_API_LEVEL >= 332
 #include <hxinc/kha/SystemImpl.h>
@@ -235,6 +236,7 @@ namespace {
 		if (!mixThreadregistered) {
 			HX_TOP_OF_STACK
 			mixThreadregistered = true;
+			threadSleep(100);
 		}
 #endif
 		//int addr = 0;
@@ -344,14 +346,18 @@ int kore(int argc, char **argv) {
 	_hxcpp_argv = argv;
 	HX_TOP_OF_STACK
 	hx::Boot();
+#ifdef NDEBUG
 	try {
+#endif
 		__boot_all();
 		__hxcpp_main();
+#ifdef NDEBUG
 	}
 	catch (Dynamic e) {
 		__hx_dump_stack();
 		Kore::log(Kore::Error, "Error %s", e == null() ? "null" : e->toString().__CStr());
 		return -1;
 	}
+#endif
 	return 0;
 }
