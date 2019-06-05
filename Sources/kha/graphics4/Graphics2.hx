@@ -696,14 +696,13 @@ class TextShaderPainter {
 
 		var xpos: FastFloat = 0.0;
 		var ypos: FastFloat = 0.0;
-		startString(text);
-		for (i in 0...stringLength()) {
-			var q = font.getBakedQuad(bakedQuadCache, findIndex(charCodeAt(i)), xpos, ypos);
+		for (i in 0...text.length) {
+			var charCode = StringTools.fastCodeAt(text, i);
+			var q = font.getBakedQuad(bakedQuadCache, findIndex(charCode), xpos, ypos);
 			if (q != null) {
 				xpos += q.xadvance;
 			}
 		}
-		endString();
 		return xpos;
 	}
 
